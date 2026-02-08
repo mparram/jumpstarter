@@ -16,6 +16,7 @@ from jumpstarter.common.exceptions import ConfigurationError, MissingDriverError
 from jumpstarter.common.grpc import aio_secure_channel, ssl_channel_credentials
 from jumpstarter.common.importlib import import_class
 from jumpstarter.driver import Driver
+from jumpstarter.observability.types import ObservabilityConfigV1Alpha1
 
 
 class ExporterConfigV1Alpha1DriverInstanceProxy(BaseModel):
@@ -98,6 +99,7 @@ class ExporterConfigV1Alpha1(BaseModel):
 
     description: str | None = None
     export: dict[str, ExporterConfigV1Alpha1DriverInstance] = Field(default_factory=dict)
+    observability: ObservabilityConfigV1Alpha1 | None = Field(default=None)
 
     path: Path | None = Field(default=None)
 
@@ -202,6 +204,7 @@ class ExporterConfigV1Alpha1(BaseModel):
                 ).instantiate,
                 tls=self.tls,
                 grpc_options=self.grpcOptions,
+                observability_config=self.observability,
             )
             # Initialize the exporter (registration, etc.)
             await exporter.__aenter__()

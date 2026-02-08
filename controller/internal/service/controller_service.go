@@ -44,6 +44,9 @@ import (
 	pb "github.com/jumpstarter-dev/jumpstarter-controller/internal/protocol/jumpstarter/v1"
 	"github.com/jumpstarter-dev/jumpstarter-controller/internal/service/auth"
 	clientsvcv1 "github.com/jumpstarter-dev/jumpstarter-controller/internal/service/client/v1"
+	logsv1grpc "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metricsv1grpc "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	tracesv1grpc "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -753,6 +756,17 @@ func (s *ControllerService) Start(ctx context.Context) error {
 		server,
 		clientsvcv1.NewClientService(s.Client, *auth.NewAuth(s.Client, s.Authn, s.Authz, s.Attr)),
 	)
+	// Register OpenTelemetry OTLP services
+	obsService := &ObservabilityService{
+		Client: s.Client,
+		Scheme: s.Scheme,
+		Authn:  s.Authn,
+		Authz:  s.Authz,
+		Attr:   s.Attr,
+	}
+	metricsv1grpc.RegisterMetricsServiceServer(server, &metricsService{ObservabilityService: obsService})
+	logsv1grpc.RegisterLogsServiceServer(server, &logsService{ObservabilityService: obsService})
+	tracesv1grpc.RegisterTraceServiceServer(server, &tracesService{ObservabilityService: obsService})
 
 	// Register reflection service on gRPC server.
 	reflection.Register(server)

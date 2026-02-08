@@ -2,9 +2,13 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 import grpc
+
+if TYPE_CHECKING:
+    from jumpstarter.observability.otlp.server import OTLPServer
+    from jumpstarter.observability.metrics.endpoint import MetricsEndpoint
 from anyio import (
     AsyncContextManagerMixin,
     CancelScope,
@@ -26,6 +30,7 @@ from jumpstarter.common.streams import connect_router_stream
 from jumpstarter.config.tls import TLSConfigV1Alpha1
 from jumpstarter.driver import Driver
 from jumpstarter.exporter.session import Session
+from jumpstarter.observability.types import ObservabilityConfigV1Alpha1
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +42,15 @@ class Exporter(AsyncContextManagerMixin, Metadata):
     lease_name: str = field(init=False, default="")
     tls: TLSConfigV1Alpha1 = field(default_factory=TLSConfigV1Alpha1)
     grpc_options: dict[str, str] = field(default_factory=dict)
+    observability_config: ObservabilityConfigV1Alpha1 | None = field(default=None)
     registered: bool = field(init=False, default=False)
     _unregister: bool = field(init=False, default=False)
     _stop_requested: bool = field(init=False, default=False)
     _started: bool = field(init=False, default=False)
     _tg: TaskGroup | None = field(init=False, default=None)
+    _metrics_endpoint: "MetricsEndpoint | None" = field(init=False, default=None)
+    _otlp_server: "OTLPServer | None" = field(init=False, default=None)
+    _root_device: Driver | None = field(init=False, default=None)
 
     def stop(self, wait_for_lease_exit=False, should_unregister=False):
         """Signal the exporter to stop.
@@ -66,6 +75,18 @@ class Exporter(AsyncContextManagerMixin, Metadata):
             yield self
         finally:
             try:
+                # Stop observability servers if running
+                if self._metrics_endpoint is not None:
+                    try:
+                        await self._metrics_endpoint.stop()
+                    except Exception as e:
+                        logger.warning("Error stopping metrics endpoint: %s", e, exc_info=True)
+                if self._otlp_server is not None:
+                    try:
+                        await self._otlp_server.stop()
+                    except Exception as e:
+                        logger.warning("Error stopping OTLP server: %s", e, exc_info=True)
+
                 if self.registered and self._unregister:
                     logger.info("Unregistering exporter with controller")
                     try:
@@ -100,10 +121,13 @@ class Exporter(AsyncContextManagerMixin, Metadata):
     @asynccontextmanager
     async def session(self):
         controller = jumpstarter_pb2_grpc.ControllerServiceStub(await self.channel_factory())
+        # Create root_device if not already created, or reuse existing one
+        if self._root_device is None:
+            self._root_device = self.device_factory()
         with Session(
             uuid=self.uuid,
             labels=self.labels,
-            root_device=self.device_factory(),
+            root_device=self._root_device,
         ) as session:
             async with session.serve_unix_async() as path:
                 async with grpc.aio.secure_channel(
@@ -159,6 +183,31 @@ class Exporter(AsyncContextManagerMixin, Metadata):
         """
         Serve the exporter.
         """
+        # Create root_device once - it will be reused in session()
+        self._root_device = self.device_factory()
+
+        # Initialize metrics endpoint if enabled
+        if self.observability_config is not None and self.observability_config.metrics_enabled:
+            from jumpstarter.observability.metrics.endpoint import MetricsEndpoint
+
+            self._metrics_endpoint = MetricsEndpoint(
+                config=self.observability_config,
+                root_device=self._root_device,
+                exporter_uuid=str(self.uuid),
+                exporter_labels=self.labels,
+            )
+            await self._metrics_endpoint.start()
+
+        # Initialize OTLP server if enabled
+        if self.observability_config is not None and self.observability_config.otlp_enabled:
+            from jumpstarter.observability.otlp.server import OTLPServer
+
+            self._otlp_server = OTLPServer(
+                config=self.observability_config,
+                channel_factory=self.channel_factory,
+            )
+            await self._otlp_server.start()
+
         # initial registration
         async with self.session():
             pass
@@ -189,6 +238,10 @@ class Exporter(AsyncContextManagerMixin, Metadata):
             self._tg = tg
             tg.start_soon(status)
             async for status in status_rx:
+                # Update metrics endpoint status
+                if self._metrics_endpoint is not None:
+                    self._metrics_endpoint.update_status(self.registered, status.leased)
+
                 if self.lease_name != "" and self.lease_name != status.lease_name:
                     self.lease_name = status.lease_name
                     logger.info("Lease status changed, killing existing connections")

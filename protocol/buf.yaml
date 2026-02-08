@@ -3,6 +3,7 @@ modules:
   - path: proto
 deps:
   - buf.build/googleapis/googleapis
+  - buf.build/opentelemetry/opentelemetry
 lint:
   use:
     - STANDARD

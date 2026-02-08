@@ -76,7 +76,7 @@ build:
 	uv build --all --out-dir dist
 
 protobuf-gen:
-	podman run --volume "$(shell pwd):/workspace" --workdir /workspace docker.io/bufbuild/buf:latest generate
+	podman run --volume "$(shell pwd):/workspace" --volume "$(HOME)/.buf:/root/.buf" --volume "$(HOME)/.netrc:/root/.netrc" --workdir /workspace docker.io/bufbuild/buf:latest generate
 	# Fix Python imports: convert absolute imports to relative imports
 	# In jumpstarter/client/v1: from jumpstarter.v1 import -> from ...v1 import
 	find packages/jumpstarter-protocol/jumpstarter_protocol/jumpstarter/client/v1 -name "*_pb2*.py" -type f -exec sed -i.bak \
@@ -86,6 +86,10 @@ protobuf-gen:
 	# In jumpstarter/v1: from jumpstarter.v1 import -> from . import
 	find packages/jumpstarter-protocol/jumpstarter_protocol/jumpstarter/v1 -name "*_pb2*.py" -type f -exec sed -i.bak \
 		-e 's|^from jumpstarter\.v1 import|from . import|g' \
+		{} \; -exec rm {}.bak \;
+	# Fix OpenTelemetry proto imports: from opentelemetry.proto -> from jumpstarter_protocol.opentelemetry.proto
+	find packages/jumpstarter-protocol/jumpstarter_protocol/opentelemetry -name "*_pb2*.py" -type f -exec sed -i.bak \
+		-e 's|^from opentelemetry\.proto|from jumpstarter_protocol.opentelemetry.proto|g' \
 		{} \; -exec rm {}.bak \;
 
 sync:

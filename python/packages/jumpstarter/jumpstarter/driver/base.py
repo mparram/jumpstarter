@@ -107,6 +107,18 @@ class Driver(
     def extra_labels(self) -> dict[str, str]:
         return {}
 
+    def get_metrics(self) -> dict[str, float | int] | None:
+        """
+        Return driver-specific metrics.
+
+        Drivers can override this method to expose custom metrics.
+        The returned dictionary should map metric names to their values.
+
+        Returns:
+            Dictionary with metric names as keys and numeric values, or None if no metrics.
+        """
+        return None
+
     async def DriverCall(self, request, context):
         """
         :meta private:

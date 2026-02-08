@@ -41,6 +41,9 @@ help:
 	@echo "  make test-<project>   - Test specific project"
 	@echo "  make clean-<project>  - Clean specific project"
 	@echo ""
+	@echo "Protobuf generation:"
+	@echo "  make protobuf-gen     - Generate protobuf code for all projects"
+	@echo ""
 	@echo "Projects: $(SUBDIRS)"
 
 # Build all projects
@@ -168,6 +171,24 @@ e2e-clean:
 # Backward compatibility alias
 .PHONY: test-e2e
 test-e2e: e2e-run
+
+# Generate protobuf code for all projects
+.PHONY: protobuf-gen
+protobuf-gen:
+	@echo "Generating protobuf code..."
+	@if [ -f protocol/Makefile ]; then \
+		echo "Updating OpenTelemetry proto dependencies..."; \
+		$(MAKE) -C protocol protobuf-gen || true; \
+	fi
+	@if [ -f controller/Makefile ]; then \
+		echo "Generating Go protobuf code..."; \
+		$(MAKE) -C controller protobuf-gen || true; \
+	fi
+	@if [ -f python/Makefile ]; then \
+		echo "Generating Python protobuf code..."; \
+		$(MAKE) -C python protobuf-gen || true; \
+	fi
+	@echo "✓ Protobuf code generation complete"
 
 # Per-project clean targets
 .PHONY: clean-python clean-protocol clean-controller clean-e2e

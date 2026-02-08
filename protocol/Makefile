@@ -5,5 +5,12 @@ all: lint
 
 lint:
 	$(BUF) lint
-	
-.PHONY: lint
+
+update-otel-protos:
+	$(BUF) dep update
+
+protobuf-gen: update-otel-protos
+	@echo "Note: protobuf generation happens in controller/ and python/ directories"
+	@echo "This target updates OpenTelemetry proto dependencies"
+
+.PHONY: lint update-otel-protos protobuf-gen

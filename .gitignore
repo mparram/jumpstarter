@@ -26,3 +26,5 @@ build/
 *.swo
 *~
 .DS_Store
+
+bin/
